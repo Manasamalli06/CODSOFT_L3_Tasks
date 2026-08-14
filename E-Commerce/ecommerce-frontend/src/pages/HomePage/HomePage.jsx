@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { FiArrowRight, FiShoppingBag, FiTruck, FiShield, FiHeadphones } from 'react-icons/fi';
+import { Link, useNavigate } from 'react-router-dom';
+import { FiArrowRight, FiShoppingBag, FiTruck, FiShield, FiHeadphones, FiX, FiLock } from 'react-icons/fi';
 import { productsAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import ProductCard from '../../components/ProductCard/ProductCard';
 import './HomePage.css';
 
@@ -38,6 +39,11 @@ const features = [
 const HomePage = () => {
   const [featuredProducts, setFeaturedProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const [authRedirectPath, setAuthRedirectPath] = useState('/products');
+
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchFeatured = async () => {
@@ -52,6 +58,15 @@ const HomePage = () => {
     };
     fetchFeatured();
   }, []);
+
+  // Intercept shop navigation for unauthenticated users
+  const handleShopClick = (e, targetPath = '/products') => {
+    if (!isAuthenticated) {
+      e.preventDefault();
+      setAuthRedirectPath(targetPath);
+      setShowAuthPrompt(true);
+    }
+  };
 
   return (
     <div className="home-page" id="home-page">
@@ -77,10 +92,20 @@ const HomePage = () => {
               Quality meets style in every purchase.
             </p>
             <div className="hero-actions">
-              <Link to="/products" className="btn btn-primary btn-lg" id="hero-shop-btn">
+              <Link
+                to="/products"
+                className="btn btn-primary btn-lg"
+                id="hero-shop-btn"
+                onClick={(e) => handleShopClick(e, '/products')}
+              >
                 Shop Now <FiArrowRight />
               </Link>
-              <Link to="/products?featured=true" className="btn btn-outline btn-lg" id="hero-featured-btn">
+              <Link
+                to="/products?featured=true"
+                className="btn btn-outline btn-lg"
+                id="hero-featured-btn"
+                onClick={(e) => handleShopClick(e, '/products?featured=true')}
+              >
                 Featured Items
               </Link>
             </div>
@@ -141,6 +166,7 @@ const HomePage = () => {
                 className={`category-card animate-fade-in-up stagger-${i + 1}`}
                 id={`category-${cat.name.replace(/\s+/g, '-').toLowerCase()}`}
                 style={{ '--cat-color': cat.color }}
+                onClick={(e) => handleShopClick(e, `/products?category=${encodeURIComponent(cat.name)}`)}
               >
                 <span className="category-icon">{cat.icon}</span>
                 <h3 className="category-name">{cat.name}</h3>
@@ -185,7 +211,12 @@ const HomePage = () => {
           )}
 
           <div className="section-cta">
-            <Link to="/products" className="btn btn-outline btn-lg" id="view-all-btn">
+            <Link
+              to="/products"
+              className="btn btn-outline btn-lg"
+              id="view-all-btn"
+              onClick={(e) => handleShopClick(e, '/products')}
+            >
               View All Products <FiArrowRight />
             </Link>
           </div>
@@ -204,15 +235,80 @@ const HomePage = () => {
               <Link to="/register" className="btn btn-secondary btn-lg" id="cta-register-btn">
                 Create Account <FiArrowRight />
               </Link>
-              <Link to="/products" className="btn btn-ghost btn-lg" id="cta-browse-btn">
+              <Link
+                to="/products"
+                className="btn btn-ghost btn-lg"
+                id="cta-browse-btn"
+                onClick={(e) => handleShopClick(e, '/products')}
+              >
                 Browse Products
               </Link>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Auth Prompt Modal */}
+      {showAuthPrompt && (
+        <div
+          className="auth-prompt-overlay"
+          id="auth-prompt-overlay"
+          onClick={() => setShowAuthPrompt(false)}
+        >
+          <div
+            className="auth-prompt-modal"
+            id="auth-prompt-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              className="auth-prompt-close"
+              onClick={() => setShowAuthPrompt(false)}
+              aria-label="Close"
+              id="auth-prompt-close-btn"
+            >
+              <FiX />
+            </button>
+
+            <div className="auth-prompt-icon-wrap">
+              <FiLock />
+            </div>
+
+            <h2 className="auth-prompt-title">Sign In Required</h2>
+            <p className="auth-prompt-subtitle">
+              Please sign in or create an account to browse our store and start shopping.
+            </p>
+
+            <div className="auth-prompt-actions">
+              <button
+                className="btn btn-primary btn-lg"
+                id="auth-prompt-signin-btn"
+                onClick={() => {
+                  setShowAuthPrompt(false);
+                  navigate(`/login?redirect=${encodeURIComponent(authRedirectPath)}`);
+                }}
+              >
+                Sign In
+              </button>
+
+              <div className="auth-prompt-divider">or</div>
+
+              <button
+                className="btn btn-outline btn-lg"
+                id="auth-prompt-signup-btn"
+                onClick={() => {
+                  setShowAuthPrompt(false);
+                  navigate(`/register?redirect=${encodeURIComponent(authRedirectPath)}`);
+                }}
+              >
+                Create Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default HomePage;
+

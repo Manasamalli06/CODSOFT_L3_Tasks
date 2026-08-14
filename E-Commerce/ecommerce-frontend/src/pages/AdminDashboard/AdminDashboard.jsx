@@ -122,7 +122,13 @@ const ProductModal = ({ product, onClose, onSave }) => {
           <div className="modal-row">
             <div className="form-group">
               <label className="form-label">Category *</label>
-              <input className="form-input" name="category" value={form.category} onChange={handleChange} required />
+              <select className="form-input" name="category" value={form.category} onChange={handleChange} required>
+                <option value="">Select a category</option>
+                <option value="Electronics">Electronics</option>
+                <option value="Fashion">Fashion</option>
+                <option value="Home & Kitchen">Home &amp; Kitchen</option>
+                <option value="Books">Books</option>
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Stock *</label>

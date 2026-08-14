@@ -6,7 +6,7 @@ import { FiUser, FiMail, FiMapPin, FiLock, FiCalendar } from 'react-icons/fi';
 import './ProfilePage.css';
 
 const ProfilePage = () => {
-  const { user, login } = useAuth(); // login function from context acts as a setter if we update token
+  const { user, updateUser } = useAuth();
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -80,10 +80,8 @@ const ProfilePage = () => {
 
       const { data } = await authAPI.updateProfile(updateData);
       
-      // Update local storage and context state with new user info
-      localStorage.setItem('userInfo', JSON.stringify(data.data));
-      // Re-trigger AuthContext by a full page reload or a manual context update. 
-      // For simplicity, we can reload or show success toast.
+      // Update context and localStorage so UI updates immediately (no page reload needed)
+      updateUser(data.data);
       toast.success('Profile updated successfully! 🎉');
       setPassword('');
       setConfirmPassword('');

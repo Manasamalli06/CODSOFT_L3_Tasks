@@ -20,6 +20,19 @@ const protect = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    if (global.isMockMode) {
+      const mockUser = (global.mockUsers || []).find((u) => u._id === decoded.id) || {
+        _id: decoded.id,
+        name: 'Test User',
+        email: 'test@example.com',
+        role: 'user',
+        address: {},
+      };
+      req.user = mockUser;
+      return next();
+    }
+
     req.user = await User.findById(decoded.id);
 
     if (!req.user) {

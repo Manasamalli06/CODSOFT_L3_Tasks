@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FiCreditCard, FiLock, FiCheckCircle, FiInfo } from 'react-icons/fi';
 import { FaPaypal, FaMoneyBillWave, FaQrcode } from 'react-icons/fa';
@@ -8,6 +8,98 @@ import { useAuth } from '../../context/AuthContext';
 import { ordersAPI, paymentAPI } from '../../services/api';
 import './CheckoutPage.css';
 
+// ─── PayPal Redirect Simulation ───
+const PayPalRedirectSim = ({ amount, onComplete, onCancel }) => {
+  const [phase, setPhase] = useState('redirecting'); // redirecting → processing → done
+  const [progress, setProgress] = useState(0);
+  const timerRef = useRef(null);
+  const onCompleteRef = useRef(onComplete);
+
+  // Keep the ref up-to-date without restarting the effect
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+
+  useEffect(() => {
+    // Phase 1: "Redirecting to PayPal..." for 1.5s
+    const t1 = setTimeout(() => setPhase('processing'), 1500);
+
+    // Animate progress bar
+    timerRef.current = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(timerRef.current);
+          return 100;
+        }
+        return prev + 2;
+      });
+    }, 60);
+
+    // Phase 2: "Processing payment..." then complete at ~3s
+    const t2 = setTimeout(() => {
+      setPhase('done');
+      clearInterval(timerRef.current);
+      setProgress(100);
+    }, 3000);
+
+    // Trigger callback shortly after done — use ref so effect only runs once on mount
+    const t3 = setTimeout(() => {
+      onCompleteRef.current();
+    }, 3800);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearInterval(timerRef.current);
+    };
+  }, []); // empty deps — runs once on mount only
+
+  return (
+    <div className="paypal-redirect-overlay" id="paypal-redirect-overlay">
+      <div className="paypal-redirect-card">
+        <button
+          className="paypal-redirect-cancel"
+          onClick={onCancel}
+          aria-label="Cancel PayPal payment"
+          id="paypal-cancel-btn"
+        >
+          ✕
+        </button>
+
+        <div className="paypal-redirect-logo">
+          <FaPaypal className="paypal-icon-large" />
+          <span className="paypal-brand-text">PayPal</span>
+        </div>
+
+        <div className="paypal-redirect-amount">
+          <span className="paypal-amount-label">Amount</span>
+          <span className="paypal-amount-value">${amount.toFixed(2)} USD</span>
+        </div>
+
+        <div className="paypal-progress-container">
+          <div className="paypal-progress-bar">
+            <div
+              className="paypal-progress-fill"
+              style={{ width: `${progress}%` }}
+            ></div>
+          </div>
+        </div>
+
+        <p className="paypal-redirect-status">
+          {phase === 'redirecting' && '🔗 Connecting to PayPal securely...'}
+          {phase === 'processing' && '🔒 Processing your payment...'}
+          {phase === 'done' && '✅ Payment approved! Returning to store...'}
+        </p>
+
+        <p className="paypal-redirect-notice">
+          This is a demo simulation. No real payment is being processed.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const CheckoutPage = () => {
   const navigate = useNavigate();
   const { cartItems, total, subtotal, shippingCost, tax, clearCart } = useCart();
@@ -15,7 +107,7 @@ const CheckoutPage = () => {
 
   // Form states
   const [paymentMethod, setPaymentMethod] = useState('stripe');
-  const [fullName, setFullName] = useState(user?.name || '');
+  const [fullName, setFullName] = useState('');
   const [street, setStreet] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
@@ -24,6 +116,14 @@ const CheckoutPage = () => {
 
   const [loading, setLoading] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(null);
+  const [showPayPalRedirect, setShowPayPalRedirect] = useState(false);
+
+  // Populate fullName once user is available (fixes race condition with auth loading)
+  useEffect(() => {
+    if (user?.name && !fullName) {
+      setFullName(user.name);
+    }
+  }, [user]);
 
   if (!isAuthenticated) {
     return (
@@ -53,21 +153,25 @@ const CheckoutPage = () => {
     );
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Validate shipping fields
+  const validateShipping = () => {
     if (!fullName || !street || !city || !state || !zipCode || !country) {
       toast.error('Please complete all shipping address fields');
-      return;
+      return false;
     }
+    return true;
+  };
 
+  // Core order placement logic (shared between regular and PayPal flows)
+  const placeOrder = async (paymentResultOverride = null) => {
     setLoading(true);
     try {
-      let paymentResult = { status: 'pending' };
-      
-      if (paymentMethod !== 'cod') {
-        // 1. Create Simulated Payment Intent
+      let paymentResult = paymentResultOverride || { status: 'pending' };
+
+      if (!paymentResultOverride && paymentMethod !== 'cod') {
+        // Create Simulated Payment Intent
         const { data: intentRes } = await paymentAPI.createIntent({ amount: total });
-        
+
         paymentResult = {
           id: intentRes.data?.clientSecret || `sim_${Date.now()}`,
           status: 'succeeded',
@@ -75,7 +179,7 @@ const CheckoutPage = () => {
         };
       }
 
-      // 2. Create the order in database
+      // Create the order in database
       const orderPayload = {
         items: cartItems.map((item) => ({
           product: item._id,
@@ -97,8 +201,8 @@ const CheckoutPage = () => {
       };
 
       const { data: orderRes } = await ordersAPI.create(orderPayload);
-      
-      // Success behaviors
+
+      // Success
       setOrderSuccess(orderRes.data);
       clearCart();
       toast.success('Order placed successfully! 🎉');
@@ -108,6 +212,39 @@ const CheckoutPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateShipping()) return;
+
+    if (paymentMethod === 'paypal') {
+      // Show PayPal redirect simulation instead of placing order immediately
+      setShowPayPalRedirect(true);
+      return;
+    }
+
+    // For all other methods, place order directly
+    await placeOrder();
+  };
+
+  // Called when the PayPal simulation completes
+  const handlePayPalComplete = async () => {
+    setShowPayPalRedirect(false);
+
+    const paypalPaymentResult = {
+      id: `PAYPAL_${Date.now()}`,
+      status: 'succeeded',
+      email: user.email,
+      payer: { email_address: user.email },
+    };
+
+    await placeOrder(paypalPaymentResult);
+  };
+
+  const handlePayPalCancel = () => {
+    setShowPayPalRedirect(false);
+    toast('PayPal payment cancelled', { icon: 'ℹ️' });
   };
 
   if (orderSuccess) {
@@ -357,7 +494,7 @@ const CheckoutPage = () => {
               'Processing...'
             ) : (
               <>
-                <FiLock /> {paymentMethod === 'cod' ? 'Place Order' : `Pay Now ($${total.toFixed(2)})`}
+                <FiLock /> {paymentMethod === 'cod' ? 'Place Order' : paymentMethod === 'paypal' ? 'Continue to PayPal' : `Pay Now ($${total.toFixed(2)})`}
               </>
             )}
           </button>
@@ -367,6 +504,15 @@ const CheckoutPage = () => {
           </p>
         </aside>
       </form>
+
+      {/* PayPal Redirect Simulation */}
+      {showPayPalRedirect && (
+        <PayPalRedirectSim
+          amount={total}
+          onComplete={handlePayPalComplete}
+          onCancel={handlePayPalCancel}
+        />
+      )}
     </div>
   );
 };
